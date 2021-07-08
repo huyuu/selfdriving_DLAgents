@@ -1,0 +1,271 @@
+import numpy as np
+import pandas as pd
+from tensorflow import keras as kr
+import matplotlib.pyplot as pl
+import os
+import cv2
+import copy
+
+
+def train_test_split(images, subParas, labels, testRatio=0.1):
+    amount = labels.shape[0]
+    print(amount)
+    array = np.arange(amount)
+    trainIndices = np.random.permutation(array)[:int(amount*testRatio)].tolist()
+    testIndices = np.random.permutation(array)[-int(amount*testRatio):].tolist()
+    return images[trainIndices, :], subParas[trainIndices, :], labels[trainIndices, :], images[testIndices, :], subParas[testIndices, :], labels[testIndices, :]
+
+
+def getCenterDeviationWithImage(image_origin, shouldTrim=True):
+    bottomAcceptableMargin = 20
+    y_start = 40 if shouldTrim else 0
+    height = 70 if shouldTrim else 120
+    y_end = y_start+height
+    image_trimmed = image_origin[y_start: y_end, 0: 320]
+    image_blurred = cv2.bilateralFilter(image_trimmed, 5, 200, 200)
+    image_gray = cv2.cvtColor(image_blurred, cv2.COLOR_RGB2GRAY)
+    # image_gray = cv2.cvtColor(image_trimmed,cv2.COLOR_RGB2GRAY)
+    # dst = cv2.fastNlMeansDenoising(image_trimmed,h=20)
+    # image_edge = cv2.Canny(dst, 150, 200)
+    image_edge = cv2.Canny(image_gray, 150, 300)
+
+    left = 0
+    right = 320
+    gap = None
+    # lines = cv2.HoughLinesP(image_edge, rho=1, theta=np.pi/360, threshold=50, minLineLength=50, maxLineGap=5)
+    # if lines is not None:
+    #     for line in lines:
+    #         x1,y1,x2,y2 = line[0]
+    #         if y1 > height - 20:
+    #             if x1 < 160:
+    #                 left = max(x1, left)
+    #             else:
+    #                 right = min(x1, right)
+    #         if y2 > height - 20:
+    #             if x2 < 160:
+    #                 left = max(x2, left)
+    #             else:
+    #                 right = min(x2, right)
+    #         # cv2.line(image_trimmed, (x1,y1), (x2,y2), (255, 0, 0), 2)
+    #     if right == 320 and left == 0:
+    #         return None, image_origin
+    #     roadCenter = int((right + left)/2)
+    #     roadHalfWidth = (right - left)/2
+    #     gap = (160 - roadCenter) / roadHalfWidth
+    #     cv2.circle(image_origin,(160,30+y_start),5,(255,0,0),thickness=1)
+    #     cv2.circle(image_origin,(roadCenter,30+y_start),5,(0,0,255),thickness=1)
+    #     return float(gap), image_origin
+    # else:
+    #     return None, image_origin
+    countours, hierarchy = cv2.findContours(image_edge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    # countours = np.array(countours)
+    for countour in countours:
+        countour = countour[:, 0, :]
+        xs_bottom = countour[countour[:, 1] > height - bottomAcceptableMargin, 0]
+        if len(xs_bottom) == 0:
+            continue
+        possibleLefts = xs_bottom[xs_bottom < 160]
+        if len(possibleLefts) > 0:
+            possibleLeft = possibleLefts.max()
+            left = max(possibleLeft, left)
+        possibleRights = xs_bottom[xs_bottom > 160]
+        if len(possibleRights) > 0:
+            possibleRight = possibleRights.min()
+            right = min(possibleRight, right)
+
+    if right == 320:
+        right = 240
+    # else:
+    #     right_normalized = (right - 160) / 100
+    # self.rightQueue = np.insert(self.rightQueue, 0, right)[:-1]
+    if left == 0:
+        left = 80
+    # else:
+    #     left_normalized = (160 - left) / 100.0
+    # self.leftQueue = np.insert(self.leftQueue, 0, left)[:-1]
+    # roadCenter = (right + left)/2
+    # roadHalfWidth = (right - left)/2
+    # gap = (160 - roadCenter) / roadHalfWidth
+    # # Image center color_blue
+    # cv2.circle(image_edge, (int(self.leftQueue.mean()), height-bottomAcceptableMargin),5,(255,0,0),thickness=3)
+    # cv2.circle(image_edge, (int(self.rightQueue.mean()), height-bottomAcceptableMargin),5,(255,0,0),thickness=3)
+    # cv2.circle(image_edge, (int((self.rightQueue.mean()+self.leftQueue.mean())/2), height-bottomAcceptableMargin),5,(255,0,0),thickness=3)
+    # The center of the road  color_red
+    # cv2.circle(image_edge, (int(roadCenter),height-5),5,(255,0,0),thickness=3)
+    # cv2.circle(image_edge, (160,int(height-bottomAcceptableMargin)),5,(255,0,0),thickness=2)
+    try:
+        cv2.drawContours(image_edge, countours, 1, (255,0,0), 1)
+    except:
+        return image_edge
+    return image_edge
+
+
+
+class DeepModel():
+    def __init__(self):
+        # self.traceDataDirPath = '../data/trace1'
+        self.traceDataDirPath = './data/trace1'
+        # load model
+        self.modelPath = './model.h5'
+        self.model = self.__loadModel()
+
+
+    # MARK: - Public Method
+
+    def run(self):
+        images, subParas, labels = self.__loadOneTrainingDataSet()
+        images_train, subParas_train, labels_train, images_test, subParas_test, labels_test = train_test_split(images, subParas, labels, testRatio=0.2)
+        # print(images_train.shape)
+        # print(subParas_train.shape)
+        # print(labels_train.shape)
+        self.model.summary()
+        self.model.fit(
+            [images_train, subParas_train],
+            labels_train,
+            batch_size=16,
+            epochs=20,
+            validation_split=0.15
+        )
+        print("Evaluate on test data")
+        results = self.model.evaluate([images_test, subParas_test], labels_test, batch_size=16)
+        print("test loss, test acc:", results)
+        self.model.save(self.modelPath)
+
+
+    def showVedio(self):
+        fig = pl.figure()
+        plottingImages = []
+        images, subParas, labels = self.__loadOneTrainingDataSet()
+        for image in images:
+            image = getCenterDeviationWithImage(image, shouldTrim=False)
+            # _, _ = self.getCenterDeviation(image)
+            image_plot = pl.imshow(image, cmap='gray')
+            plottingImages.append([image_plot])
+        ani = animation.ArtistAnimation(fig, plottingImages, interval=50)
+        pl.show()
+
+
+
+    # MARK: - Private Method
+
+    def __loadModel(self):
+        if os.path.exists(self.modelPath):
+            return kr.models.load_model(self.modelPath)
+        else:
+            image_inputs = kr.layers.Input(shape=(70, 320, 1), dtype=np.float, name='image')
+            # image_inputs = layers.Input(shape=env.observation_spec['image']['shape'], dtype=np.float, name='image')
+            image_layer = kr.layers.Conv2D(filters=64, kernel_size=4, strides=(2, 2), activation='relu', name='image_conv1')(image_inputs)
+            image_layer = kr.layers.MaxPooling2D(pool_size=(4,4))(image_layer)
+            image_layer = kr.layers.Conv2D(filters=32, kernel_size=3, strides=(1, 1), activation='relu', name='image_conv3')(image_layer)
+            image_layer = kr.layers.MaxPooling2D(pool_size=(4,4))(image_layer)
+            image_layer = kr.layers.Flatten(name='flattened')(image_layer)
+            image_layer = kr.layers.Dense(256, activation='relu', name='image_dense1')(image_layer)
+            image_layer = kr.layers.Dense(8, activation='relu', name='image_dense2')(image_layer)
+
+            # subPara_inputs = layers.Input(shape=env.observation_spec['subPara']['shape'], dtype=np.float, name='subPara')
+            subPara_inputs = kr.layers.Input(shape=(3,), dtype=np.float, name='subPara')
+            # subPara_dense = kr.layers.Dense(2, activation='relu', name='subPara_dense')(subPara_inputs)
+
+            common = kr.layers.concatenate([image_layer, subPara_inputs])
+
+            num_actions = 3
+            # action_dense1 = kr.layers.Dense(8, activation="relu", name='action_dense1')(common)
+            # num_actions = env.action_spec['shape'][0]
+            action = kr.layers.Dense(num_actions, activation="relu", name='action_dense2')(common)
+
+            model = kr.Model(inputs=[image_inputs, subPara_inputs], outputs=action)
+            # model.compile(
+            #     optimizer='adam',
+            #     loss='mse',
+            #     metrics=['accuracy'],
+            # )
+            model.compile(
+                optimizer=kr.optimizers.Adam(learning_rate=5e-3),
+                loss=kr.losses.CategoricalCrossentropy(),
+                metrics=[kr.metrics.CategoricalAccuracy()],
+            )
+            return model
+
+
+    def __loadOneTrainingDataSet(self):
+        images = []
+        subParas = []
+        labels = []
+        steering_angle_last = 0.0
+        throttle_last = 0.0
+        speed_last = 0.0
+        for dataSetDirName in filter(lambda name: '2021' in name, os.listdir(f"{self.traceDataDirPath}/")):
+            logPath = f"{self.traceDataDirPath}/{dataSetDirName}/driving_log.csv"
+            print(f"start training {logPath} ...")
+            logData = pd.read_csv(logPath, names=[
+                'Center Image',
+                'Left Image',
+                'Right Image',
+                'Steering Angle',
+                'Throttle',
+                'Break',
+                'Speed'
+            ])
+
+            # calculate label
+            for index in logData.index:
+                steering_angle_current = logData.loc[index, 'Steering Angle']
+                throttle_current = logData.loc[index, 'Throttle']
+                speed_current = logData.loc[index, 'Speed']
+
+                steering_angle_delta = steering_angle_current - steering_angle_last
+                throttle_delta = throttle_current - throttle_last
+                logData.loc[index, 'angle delta'] = steering_angle_delta
+
+                zeroError = 1e-2
+                if steering_angle_delta < -zeroError: # turnning left
+                    action = 0
+                elif steering_angle_delta > zeroError: # turnning right
+                    action = 1
+                else: # go straight
+                    action = 2
+                logData.loc[index, 'label'] = action
+
+                steering_angle_last = steering_angle_current
+                throttle_last = throttle_current
+                speed_last = speed_current
+
+            print(logData.groupby('label').count()['Center Image'].values)
+            leftAmount, rightAmount, straightAmount = logData.groupby('label').count()['Center Image'].values
+            neededStraightAmount = int((leftAmount + rightAmount)/2)
+            straightIndices = np.random.permutation(logData.loc[logData['label'] == 2, :].index.values)[:neededStraightAmount]
+            logData['useForTraining'] = 0
+            logData.loc[logData['label'] == 0, 'useForTraining'] = 1
+            logData.loc[logData['label'] == 1, 'useForTraining'] = 1
+            logData.loc[straightIndices, 'useForTraining'] = 1
+            logData.to_csv(f"{self.traceDataDirPath}/{dataSetDirName}/new_log.csv")
+
+            for index in logData.loc[logData['useForTraining'] == 1, :].index:
+                # load images
+                imageName = logData.loc[index, 'Center Image'].split('\\')[-1]
+                imagePath = f"{self.traceDataDirPath}/{dataSetDirName}/IMG/{imageName}"
+                image = cv2.imread(imagePath, cv2.IMREAD_COLOR)
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = getCenterDeviationWithImage(image)
+                images.append(image.astype("float32") / 255)
+
+                subPara = logData.loc[index, ['Steering Angle', 'Throttle', 'Speed']].values.ravel()
+                subPara[2] /= 30.5
+                subParas.append(subPara)
+
+                new_label = [0, 0, 0]
+                new_label[int(logData.loc[index, 'label'])] = 1
+                labels.append(new_label)
+
+
+        images = np.array(images, dtype="float32")
+        subParas = np.array(subParas, dtype="float32").reshape(-1, 3)
+        labels = np.array(labels, dtype=np.int)
+
+        return images, subParas, labels
+
+
+if __name__ == '__main__':
+    deepModel = DeepModel()
+    deepModel.run()
+    # deepModel.showVedio()
