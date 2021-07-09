@@ -127,7 +127,7 @@ class DeepModel():
             # images_train,
             labels_train,
             batch_size=16,
-            epochs=20,
+            epochs=50,
             validation_split=0.1
         )
         print("Evaluate on test data")
@@ -242,30 +242,30 @@ class DeepModel():
             logData.to_csv(f"{self.traceDataDirPath}/{dataSetDirName}/new_log.csv")
 
             # add straight observations
-            # neededStraightAmount = noneStraightDataCount
-            # print(f"needed straight amount = {neededStraightAmount}")
-            # shuffledIndices = np.random.permutation(logData.index)
-            # straightCount = 0
-            # for index in shuffledIndices:
-            #     if abs(logData.loc[index, 'Next Steering Angle']) > 1e-2:
-            #         continue
-            #     labels.append(logData.loc[index, 'Next Steering Angle'])
-            #     # load images
-            #     imageName = logData.loc[index, 'Center Image'].split('\\')[-1]
-            #     imagePath = f"{self.traceDataDirPath}/{dataSetDirName}/IMG/{imageName}"
-            #     image = cv2.imread(imagePath, cv2.IMREAD_COLOR)
-            #     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            #     image = getCenterDeviationWithImage(image)
-            #     images.append(image.astype("float32") / 255)
-            #
-            #     # subPara = logData.loc[index, ['Steering Angle', 'Throttle', 'Speed']].values.ravel()
-            #     # subPara[2] /= 30.5
-            #     subPara = logData.loc[index, 'Steering Angle']
-            #     subParas.append(subPara)
-            #     if straightCount < neededStraightAmount:
-            #         straightCount += 1
-            #     else:
-            #         break
+            neededStraightAmount = noneStraightDataCount
+            print(f"needed straight amount = {neededStraightAmount}")
+            shuffledIndices = np.random.permutation(logData.index)
+            straightCount = 0
+            for index in shuffledIndices:
+                if abs(logData.loc[index, 'Next Steering Angle']) > 1e-2:
+                    continue
+                labels.append(logData.loc[index, 'Next Steering Angle'])
+                # load images
+                imageName = logData.loc[index, 'Center Image'].split('\\')[-1]
+                imagePath = f"{self.traceDataDirPath}/{dataSetDirName}/IMG/{imageName}"
+                image = cv2.imread(imagePath, cv2.IMREAD_COLOR)
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                image = getCenterDeviationWithImage(image)
+                images.append(image.astype("float32") / 255)
+
+                # subPara = logData.loc[index, ['Steering Angle', 'Throttle', 'Speed']].values.ravel()
+                # subPara[2] /= 30.5
+                subPara = logData.loc[index, 'Steering Angle']
+                subParas.append(subPara)
+                if straightCount < neededStraightAmount:
+                    straightCount += 1
+                else:
+                    break
 
         images = np.array(images, dtype="float32")
         subParas = np.array(subParas, dtype="float32").reshape(-1, 1)
